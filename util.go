@@ -2,7 +2,6 @@ package log
 
 import (
 	"fmt"
-	"os"
 	"path"
 	"runtime"
 	"time"
@@ -57,7 +56,17 @@ func GetLineInfo() (fileName string, funcName string, lineNo int) {
 	return
 }
 
-func writeLog(file *os.File, level int, format string, args ...interface{}) {
+type LogData struct {
+	Message     string
+	TimeStr     string
+	LevelStr    string
+	FileName    string
+	FuncName    string
+	LineNo      int
+	WarnOrFatal bool
+}
+
+func writeLog(level int, format string, args ...interface{}) *LogData {
 	nowStr := time.Now().Format("2006/01/02 15:04:05:999")
 	levelTest := GetLevelTest(level)
 	fileName, funcName, lineNo := GetLineInfo()
@@ -66,5 +75,19 @@ func writeLog(file *os.File, level int, format string, args ...interface{}) {
 	funcName = path.Base(funcName)
 	msg := fmt.Sprintf(format, args...)
 
-	fmt.Fprintf(file, "%s %s (%s:%s %d) %s\n", nowStr, levelTest, fileName, funcName, lineNo, msg)
+	logData := &LogData{
+		Message:     msg,
+		TimeStr:     nowStr,
+		LevelStr:    levelTest,
+		FileName:    fileName,
+		FuncName:    funcName,
+		LineNo:      lineNo,
+		WarnOrFatal: false,
+	}
+
+	if levelTest == "WARN" || levelTest == "ERROR" || levelTest == "FATAL" {
+		logData.WarnOrFatal = true
+	}
+	return logData
+	//fmt.Fprintf(file, "%s %s (%s:%s %d) %s\n", nowStr, levelTest, fileName, funcName, lineNo, msg)
 }

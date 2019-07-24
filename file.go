@@ -3,15 +3,17 @@ package log
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 //FileLogger 文件 Logger
 type FileLogger struct {
-	level    int
-	logPath  string
-	logName  string
-	file     *os.File
-	warnFile *os.File
+	level       int
+	logPath     string
+	logName     string
+	file        *os.File
+	warnFile    *os.File
+	logDataChan chan *LogData
 }
 
 //NewFileLogger 实例化一个File Logger
@@ -35,10 +37,21 @@ func NewFileLogger(config map[string]string) (logger LogInterface, err error) {
 	}
 	logLevelNum := GetLevelNum(logLevel)
 
+	logChanSize, ok := config["log_chan_size"]
+	if !ok {
+		logChanSize = "50000"
+	}
+
+	chanSize, err := strconv.Atoi(logChanSize)
+	if err != nil {
+		chanSize = 50000
+	}
+
 	logger = &FileLogger{
-		level:   logLevelNum,
-		logPath: logPath,
-		logName: logName,
+		level:       logLevelNum,
+		logPath:     logPath,
+		logName:     logName,
+		logDataChan: make(chan *LogData, chanSize),
 	}
 	logger.Init()
 	return
@@ -61,6 +74,18 @@ func (f *FileLogger) Init() {
 		panic(fmt.Sprintf("open file %s failed,err:%v", fileName, err))
 	}
 	f.warnFile = file
+
+	go f.writeLogForChan()
+}
+
+func (f *FileLogger) writeLogForChan() {
+	for logdata := range f.logDataChan {
+		var file = f.file
+		if logdata.WarnOrFatal {
+			file = f.warnFile
+		}
+		fmt.Fprintf(file, "%s %s (%s:%s %d) %s\n", logdata.TimeStr, logdata.LevelStr, logdata.FileName, logdata.FuncName, logdata.LineNo, logdata.Message)
+	}
 }
 
 //SetLevel 设置日志级别
@@ -76,7 +101,12 @@ func (f *FileLogger) Debug(format string, args ...interface{}) {
 	if f.level > LogLevelDebug {
 		return
 	}
-	writeLog(f.file, LogLevelDebug, format, args...)
+	datalog := writeLog(LogLevelDebug, format, args...)
+	select {
+	case f.logDataChan <- datalog:
+	default:
+	}
+
 }
 
 //Trace Trace
@@ -84,7 +114,11 @@ func (f *FileLogger) Trace(format string, args ...interface{}) {
 	if f.level > LogLevelTrace {
 		return
 	}
-	writeLog(f.file, LogLevelTrace, format, args...)
+	datalog := writeLog(LogLevelTrace, format, args...)
+	select {
+	case f.logDataChan <- datalog:
+	default:
+	}
 }
 
 //Info Info
@@ -92,7 +126,11 @@ func (f *FileLogger) Info(format string, args ...interface{}) {
 	if f.level > LogLevelInfo {
 		return
 	}
-	writeLog(f.file, LogLevelInfo, format, args...)
+	datalog := writeLog(LogLevelInfo, format, args...)
+	select {
+	case f.logDataChan <- datalog:
+	default:
+	}
 }
 
 //Warn Warn
@@ -100,7 +138,11 @@ func (f *FileLogger) Warn(format string, args ...interface{}) {
 	if f.level > LogLevelWarn {
 		return
 	}
-	writeLog(f.warnFile, LogLevelWarn, format, args...)
+	datalog := writeLog(LogLevelWarn, format, args...)
+	select {
+	case f.logDataChan <- datalog:
+	default:
+	}
 }
 
 //Error Error
@@ -108,7 +150,11 @@ func (f *FileLogger) Error(format string, args ...interface{}) {
 	if f.level > LogLevelError {
 		return
 	}
-	writeLog(f.warnFile, LogLevelError, format, args...)
+	datalog := writeLog(LogLevelError, format, args...)
+	select {
+	case f.logDataChan <- datalog:
+	default:
+	}
 }
 
 //Fatal Fatal
@@ -116,7 +162,11 @@ func (f *FileLogger) Fatal(format string, args ...interface{}) {
 	if f.level > LogLevelFatal {
 		return
 	}
-	writeLog(f.warnFile, LogLevelFatal, format, args...)
+	datalog := writeLog(LogLevelFatal, format, args...)
+	select {
+	case f.logDataChan <- datalog:
+	default:
+	}
 }
 
 //Close 关闭文件句柄
